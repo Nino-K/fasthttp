@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net"
 	"os"
 	"runtime"
@@ -635,6 +636,54 @@ func TestClientDoTimeoutErrorConcurrent(t *testing.T) {
 	wg.Wait()
 }
 
+func TestClientDoTimeoutFormDataSuccess(t *testing.T) {
+	c := &defaultClient
+	addr := "127.0.0.1:63897"
+	s := startEchoServer(t, "tcp", addr)
+	defer s.Stop()
+
+	addr = "http://" + addr
+
+	values := make(map[string][]string)
+	values["foo"] = []string{"fish"}
+	values["bar"] = []string{"potato"}
+	f := &multipart.Form{
+		Value: values,
+	}
+
+	var header RequestHeader
+	header.SetMethod("POST")
+	header.SetMultipartFormBoundary("--testBoundry")
+
+	req := Request{
+		Header:                header,
+		multipartFormBoundary: string(header.MultipartFormBoundary()),
+		multipartForm:         f,
+	}
+
+	var resp Response
+
+	uri := fmt.Sprintf("%s/foo", addr)
+	req.SetRequestURI(uri)
+	if err := c.DoTimeout(&req, &resp, time.Second); err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+
+	expectedBody := `----testBoundry
+Content-Disposition: form-data; name="foo"
+
+fish
+----testBoundry
+Content-Disposition: form-data; name="bar"
+
+potato
+----testBoundry--`
+
+	if strings.Contains(string(resp.Body()), expectedBody) {
+		t.Fatalf("unexpected reponse body: %s. Expecting %s", resp.Body(), expectedBody)
+	}
+}
+
 func testClientDoTimeoutError(t *testing.T, c *Client, n int) {
 	var req Request
 	var resp Response
@@ -1161,6 +1210,9 @@ func startEchoServerExt(t *testing.T, network, addr string, isTLS bool) *testEch
 				ctx.Success("text/plain", ctx.URI().FullURI())
 			} else if ctx.IsPost() {
 				ctx.PostArgs().WriteTo(ctx)
+				if ctx.Request.onlyMultipartForm() {
+					ctx.Success("text/plain", ctx.PostBody())
+				}
 			}
 		},
 	}

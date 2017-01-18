@@ -602,8 +602,10 @@ func (req *Request) copyToSkipBody(dst *Request) {
 	dst.parsedPostArgs = req.parsedPostArgs
 	dst.isTLS = req.isTLS
 
-	// do not copy multipartForm - it will be automatically
-	// re-created on the first call to MultipartForm.
+	if req.onlyMultipartForm() {
+		dst.multipartForm = req.multipartForm
+		dst.multipartFormBoundary = req.multipartFormBoundary
+	}
 }
 
 // CopyTo copies resp contents to dst except of body stream.
